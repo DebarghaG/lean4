@@ -69,6 +69,9 @@ globs = [
   "Lean.Compiler.IR.EmitLLVM",
   # New compiler orphan file used in tests
   "Lean.Compiler.LCNF.Probing",
+  # PCFG extraction module (not part of main Lean import)
+  "Lean.PCFG",
+  "Lean.PCFG.*",
 ]
 
 [[lean_lib]]
