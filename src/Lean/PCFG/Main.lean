@@ -5,6 +5,7 @@ Authors: DebarghaG
 -/
 import Lean.PCFG.Extract
 import Lean.PCFG.Probability
+import Lean.PCFG.Metrics
 import Lean.Util.Path
 
 namespace Lean.PCFG
@@ -23,6 +24,14 @@ structure Options where
   showEntropy : Bool := false
   /-- Laplace smoothing parameter (0 = no smoothing) -/
   smoothingAlpha : Float := 0.0
+  /-- Whether to compute and display all uncertainty metrics -/
+  showMetrics : Bool := false
+  /-- Whether to include spectral analysis (can be slow) -/
+  includeSpectral : Bool := false
+  /-- Whether to show confidence intervals for rules -/
+  showConfidence : Bool := false
+  /-- Confidence level for intervals (default 0.95) -/
+  confidenceLevel : Float := 0.95
   deriving Repr, Inhabited
 
 /-- Print usage information -/
@@ -40,6 +49,10 @@ def printUsage : IO Unit := do
   IO.println "  --inspect NAME  Print all rules for a specific non-terminal"
   IO.println "  --entropy       Print entropy statistics"
   IO.println "  --smooth ALPHA  Use Laplace smoothing with given alpha (default: 0)"
+  IO.println "  --metrics       Compute and display all uncertainty metrics"
+  IO.println "  --spectral      Include spectral analysis (can be slow)"
+  IO.println "  --confidence    Show confidence intervals for rules"
+  IO.println "  --confidence-level FLOAT  Confidence level (default: 0.95)"
   IO.println "  -h, --help      Print this help message"
 
 /-- Exception to signal help was requested -/
@@ -67,6 +80,16 @@ def parseArgs (args : List String) : ParseResult :=
       -- Parse float by trying to convert string
       let alphaVal := alpha.toNat?.getD 1 |>.toFloat
       go rest { opts with smoothingAlpha := alphaVal }
+    | "--metrics" :: rest =>
+      go rest { opts with showMetrics := true }
+    | "--spectral" :: rest =>
+      go rest { opts with includeSpectral := true }
+    | "--confidence" :: rest =>
+      go rest { opts with showConfidence := true }
+    | "--confidence-level" :: level :: rest =>
+      -- Parse float for confidence level
+      let levelVal := (level.toNat?.getD 95).toFloat / 100.0
+      go rest { opts with confidenceLevel := levelVal }
     | "-h" :: _ | "--help" :: _ =>
       .helpRequested
     | path :: rest =>
@@ -144,6 +167,18 @@ def main (args : List String) : IO UInt32 := do
       -- Print entropy statistics if requested
       if opts.showEntropy then
         printEntropyStats pcfg counts
+
+      -- Print full uncertainty metrics if requested
+      if opts.showMetrics then
+        let metrics := computeUncertaintyMetrics pcfg counts opts.includeSpectral
+        printUncertaintyMetrics metrics
+
+      -- Print confidence intervals for inspected non-terminal
+      if opts.showConfidence then
+        if let some nt := opts.inspectNt then
+          printRulesWithConfidence pcfg counts nt opts.confidenceLevel
+        else
+          IO.println "\nNote: --confidence requires --inspect NAME to specify a non-terminal"
 
       return 0
     catch e =>

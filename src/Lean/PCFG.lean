@@ -6,3 +6,4 @@ Authors: DebarghaG
 import Lean.PCFG.Basic
 import Lean.PCFG.Extract
 import Lean.PCFG.Probability
+import Lean.PCFG.Metrics
