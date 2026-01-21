@@ -169,10 +169,10 @@ Examples:
   | a::as, b::bs, eqv => eqv a b && isEqv as bs eqv
   | _,     _,     _   => false
 
-@[simp] theorem isEqv_nil_nil : isEqv ([] : List α) [] eqv = true := rfl
-@[simp] theorem isEqv_nil_cons : isEqv ([] : List α) (a::as) eqv = false := rfl
-@[simp] theorem isEqv_cons_nil : isEqv (a::as : List α) [] eqv = false := rfl
-theorem isEqv_cons₂ : isEqv (a::as) (b::bs) eqv = (eqv a b && isEqv as bs eqv) := rfl
+@[simp, grind =] theorem isEqv_nil_nil : isEqv ([] : List α) [] eqv = true := rfl
+@[simp, grind =] theorem isEqv_nil_cons : isEqv ([] : List α) (a::as) eqv = false := rfl
+@[simp, grind =] theorem isEqv_cons_nil : isEqv (a::as : List α) [] eqv = false := rfl
+@[grind =] theorem isEqv_cons₂ : isEqv (a::as) (b::bs) eqv = (eqv a b && isEqv as bs eqv) := rfl
 
 
 /-! ## Lexicographic ordering -/
@@ -301,7 +301,7 @@ Examples:
 def getLast : ∀ (as : List α), as ≠ [] → α
   | [],       h => absurd rfl h
   | [a],      _ => a
-  | _::b::as, _ => getLast (b::as) (fun h => List.noConfusion h)
+  | _::b::as, _ => getLast (b::as) (fun h => List.noConfusion rfl (heq_of_eq h))
 
 /-! ### getLast? -/
 
@@ -318,7 +318,7 @@ Examples:
 -/
 def getLast? : List α → Option α
   | []    => none
-  | a::as => some (getLast (a::as) (fun h => List.noConfusion h))
+  | a::as => some (getLast (a::as) (fun h => List.noConfusion rfl (heq_of_eq h)))
 
 @[simp, grind =] theorem getLast?_nil : @getLast? α [] = none := rfl
 
@@ -337,7 +337,7 @@ Examples:
 -/
 def getLastD : (as : List α) → (fallback : α) → α
   | [],   a₀ => a₀
-  | a::as, _ => getLast (a::as) (fun h => List.noConfusion h)
+  | a::as, _ => getLast (a::as) (fun h => List.noConfusion rfl (heq_of_eq h))
 
 -- These aren't `simp` lemmas since we always simplify `getLastD` in terms of `getLast?`.
 theorem getLastD_nil {a : α} : getLastD [] a = a := rfl
@@ -717,6 +717,7 @@ Examples:
  * `["red", "green", "blue"].leftpad 3 "blank" = ["red", "green", "blue"]`
  * `["red", "green", "blue"].leftpad 1 "blank" = ["red", "green", "blue"]`
 -/
+@[simp, grind =]
 def leftpad (n : Nat) (a : α) (l : List α) : List α := replicate (n - length l) a ++ l
 
 
@@ -730,6 +731,7 @@ Examples:
  * `["red", "green", "blue"].rightpad 3 "blank" = ["red", "green", "blue"]`
  * `["red", "green", "blue"].rightpad 1 "blank" = ["red", "green", "blue"]`
 -/
+@[simp, grind =]
 def rightpad (n : Nat) (a : α) (l : List α) : List α := l ++ replicate (n - length l) a
 
 /-! ### reduceOption -/
@@ -1847,6 +1849,7 @@ Examples:
 * `[2, 4, 5, 6].any (· % 2 = 0) = true`
 * `[2, 4, 5, 6].any (· % 2 = 1) = true`
 -/
+@[suggest_for List.some]
 def any : (l : List α) → (p : α → Bool) → Bool
   | [], _ => false
   | h :: t, p => p h || any t p
@@ -1866,6 +1869,7 @@ Examples:
 * `[2, 4, 6].all (· % 2 = 0) = true`
 * `[2, 4, 5, 6].all (· % 2 = 0) = false`
 -/
+@[suggest_for List.every]
 def all : List α → (α → Bool) → Bool
   | [], _ => true
   | h :: t, p => p h && all t p

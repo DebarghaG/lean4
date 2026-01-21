@@ -274,10 +274,12 @@ def wrapAsync {α β : Type} (act : α → CommandElabM β) (cancelTk? : Option 
     CommandElabM (α → EIO Exception β) := do
   let ctx ← read
   let ctx := { ctx with cancelTk? }
-  let (childNGen, parentNGen) := (← getDeclNGen).mkChild
-  setDeclNGen parentNGen
+  let (childNGen, parentNGen) := (← get).ngen.mkChild
+  modify fun s => { s with ngen := parentNGen }
+  let (childDeclNGen, parentDeclNGen) := (← getDeclNGen).mkChild
+  setDeclNGen parentDeclNGen
   let st ← get
-  let st := { st with auxDeclNGen := childNGen }
+  let st := { st with auxDeclNGen := childDeclNGen, ngen := childNGen }
   return (act · |>.run ctx |>.run' st)
 
 open Language in
@@ -377,7 +379,8 @@ private def mkInfoTree (elaborator : Name) (stx : Syntax) (trees : PersistentArr
   let scope := s.scopes.head!
   let tree := InfoTree.node (Info.ofCommandInfo { elaborator, stx }) trees
   let ctx := PartialContextInfo.commandCtx {
-    env := s.env, fileMap := ctx.fileMap, mctx := {}, currNamespace := scope.currNamespace,
+    env := s.env, cmdEnv? := some s.env, fileMap := ctx.fileMap, mctx := {},
+    currNamespace := scope.currNamespace,
     openDecls := scope.openDecls, options := scope.opts, ngen := s.ngen
   }
   return InfoTree.context ctx tree

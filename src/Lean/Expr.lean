@@ -708,7 +708,7 @@ def mkSimpleThunk (type : Expr) : Expr :=
   .lit l
 
 /--
-Return the "raw" natural number `.lit (.natVal n)`.
+Returns the "raw" natural number `.lit (.natVal n)`.
 This is not the default representation used by the Lean frontend.
 See `mkNatLit`.
 -/
@@ -716,13 +716,21 @@ See `mkNatLit`.
   mkLit (.natVal n)
 
 /--
-Return a natural number literal used in the frontend. It is a `OfNat.ofNat` application.
+Returns `instOfNatNat n : OfNat Nat n`
+-/
+def mkInstOfNatNat (n : Expr) : Expr :=
+  mkApp (mkConst ``instOfNatNat) n
+
+def mkNatLitCore (n : Expr) : Expr :=
+  mkApp3 (mkConst ``OfNat.ofNat [levelZero]) (mkConst ``Nat) n (mkInstOfNatNat n)
+
+/--
+Returns a natural number literal used in the frontend. It is a `OfNat.ofNat` application.
 Recall that all theorems and definitions containing numeric literals are encoded using
 `OfNat.ofNat` applications in the frontend.
 -/
 @[match_pattern, expose] def mkNatLit (n : Nat) : Expr :=
-  let r := mkRawNatLit n
-  mkApp3 (mkConst ``OfNat.ofNat [levelZero]) (mkConst ``Nat) r (mkApp (mkConst ``instOfNatNat) r)
+  mkNatLitCore (mkRawNatLit n)
 
 /-- Return the string literal `.lit (.strVal s)` -/
 @[match_pattern, expose] def mkStrLit (s : String) : Expr :=
@@ -2010,50 +2018,6 @@ def setAppPPExplicitForExposingMVars (e : Expr) : Expr :=
     mkAppN f args |>.setPPExplicit true
   | _      => e
 
-/--
-Returns true if `e` is an expression of the form `letFun v f`.
-Ideally `f` is a lambda, but we do not require that here.
-Warning: if the `let_fun` is applied to additional arguments (such as in `(let_fun f := id; id) 1`), this function returns `false`.
--/
-@[deprecated Expr.isHave (since := "2025-06-29")]
-def isLetFun (e : Expr) : Bool := e.isAppOfArity ``letFun 4
-
-/--
-Recognizes a `let_fun` expression.
-For `let_fun n : t := v; b`, returns `some (n, t, v, b)`, which are the first four arguments to `Lean.Expr.letE`.
-Warning: if the `let_fun` is applied to additional arguments (such as in `(let_fun f := id; id) 1`), this function returns `none`.
-
-`let_fun` expressions are encoded as `letFun v (fun (n : t) => b)`.
-They can be created using `Lean.Meta.mkLetFun`.
-
-If in the encoding of `let_fun` the last argument to `letFun` is eta reduced, this returns `Name.anonymous` for the binder name.
--/
-@[deprecated Expr.isHave (since := "2025-06-29")]
-def letFun? (e : Expr) : Option (Name × Expr × Expr × Expr) :=
-  match e with
-  | .app (.app (.app (.app (.const ``letFun _) t) _β) v) f =>
-    match f with
-    | .lam n _ b _ => some (n, t, v, b)
-    | _ => some (.anonymous, t, v, .app (f.liftLooseBVars 0 1) (.bvar 0))
-  | _ => none
-
-/--
-Like `Lean.Expr.letFun?`, but handles the case when the `let_fun` expression is possibly applied to additional arguments.
-Returns those arguments in addition to the values returned by `letFun?`.
--/
-@[deprecated Expr.isHave (since := "2025-06-29")]
-def letFunAppArgs? (e : Expr) : Option (Array Expr × Name × Expr × Expr × Expr) := do
-  guard <| 4 ≤ e.getAppNumArgs
-  guard <| e.isAppOf ``letFun
-  let args := e.getAppArgs
-  let t := args[0]!
-  let v := args[2]!
-  let f := args[3]!
-  let rest := args.extract 4 args.size
-  match f with
-  | .lam n _ b _ => some (rest, n, t, v, b)
-  | _ => some (rest, .anonymous, t, v, .app (f.liftLooseBVars 0 1) (.bvar 0))
-
 /-- Maps `f` on each immediate child of the given expression. -/
 @[specialize]
 def traverseChildren [Applicative M] (f : Expr → M Expr) : Expr → M Expr
@@ -2421,5 +2385,28 @@ def eagerReflBoolTrue : Expr :=
 
 def eagerReflBoolFalse : Expr :=
   mkApp2 (mkConst ``eagerReduce [0]) (mkApp3 (mkConst ``Eq [1]) (mkConst ``Bool) (mkConst ``Bool.false) (mkConst ``Bool.false)) reflBoolFalse
+
+/--
+Replaces the head constant in a function application chain with a different constant.
+
+Given an expression that is either a constant or a function application chain,
+replaces the head constant with `declName` while preserving all arguments and universe levels.
+
+**Examples**:
+- `f.replaceFn g` → `g` (where `f` is a constant)
+- `(f a b c).replaceFn g` → `g a b c`
+- `(@f.{u, v} a b).replaceFn g` → `@g.{u, v} a b`
+
+**Panics**: If the expression is neither a constant nor a function application.
+
+**Use case**: Useful for substituting one function for another while maintaining
+the same application structure, such as replacing a theorem with a related theorem
+that has the same type and universe parameters.
+-/
+def Expr.replaceFn (e : Expr) (declName : Name) : Expr :=
+  match e with
+  | .app f a    => mkApp (f.replaceFn declName) a
+  | .const _ us => mkConst declName us
+  | _ => panic! "function application or constant expected"
 
 end Lean

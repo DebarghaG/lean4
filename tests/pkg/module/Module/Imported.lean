@@ -35,7 +35,7 @@ with the goal
   f = 1
 
 Note: The full type of `@rfl` is
-  ∀ {α : Sort ?u.115} {a : α}, a = a
+  ∀ {α : Sort ?u.121} {a : α}, a = a
 
 Note: The following definitions were not unfolded because their definition is not exposed:
   f ↦ 1
@@ -208,3 +208,6 @@ error: Invalid `meta` definition `metaUsingNonMeta`, `f` is not accessible here;
 #guard_msgs in
 public meta def metaUsingNonMeta : Nat :=
   f
+
+-- #11672
+example : instA = { instA with b := 0 } := rfl

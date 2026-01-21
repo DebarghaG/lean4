@@ -28,7 +28,7 @@ public def findSpec (database : SpecTheorems) (wp : Expr) : MetaM SpecTheorem :=
   let prog := prog.headBeta
   let candidates ← database.specs.getMatch prog
   let candidates := candidates.filter fun spec => !database.erased.contains spec.proof
-  let candidates := candidates.insertionSort fun s₁ s₂ => s₁.priority < s₂.priority
+  let candidates := candidates.insertionSort fun s₁ s₂ => s₁.priority > s₂.priority
   trace[Elab.Tactic.Do.spec] "Candidates for {prog}: {candidates.map (·.proof)}"
   let specs ← candidates.filterM fun spec => do
     let (_, _, _, type) ← spec.proof.instantiate
@@ -41,8 +41,8 @@ public def findSpec (database : SpecTheorems) (wp : Expr) : MetaM SpecTheorem :=
       -- information why the defeq check failed, so we do it again.
       withOptions (fun o =>
         if o.getBool `trace.Elab.Tactic.Do.spec then
-          o |>.setBool `pp.universes true
-            |>.setBool `trace.Meta.isDefEq true
+          o |>.set `pp.universes true
+            |>.set `trace.Meta.isDefEq true
         else
           o) do
       withTraceNode `Elab.Tactic.Do.spec (fun _ => return m!"Defeq check for {type} failed.") do

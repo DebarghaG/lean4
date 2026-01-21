@@ -124,17 +124,41 @@ def mkInjectiveEqTheoremNameFor (ctorName : Name) : Name :=
 private def mkInjectiveEqTheoremType? (ctorVal : ConstructorVal) : MetaM (Option Expr) :=
   mkInjectiveTheoremTypeCore? ctorVal true
 
+/--
+Collects all components of a nested `And`, as projections.
+(Avoids the binders that `MVarId.casesAnd` would introduce.)
+-/
+private partial def andProjections (e : Expr) : MetaM (Array Expr) := do
+  let rec go (e : Expr) (t : Expr) (acc : Array Expr) : MetaM (Array Expr) := do
+    match_expr t with
+    | And t1 t2 =>
+      let acc ← go (mkProj ``And 0 e) t1 acc
+      let acc ← go (mkProj ``And 0 e) t2 acc
+      return acc
+    | _ =>
+      return acc.push e
+  go e (← inferType e) #[]
+
 private def mkInjectiveEqTheoremValue (ctorName : Name) (targetType : Expr) : MetaM Expr := do
   forallTelescopeReducing targetType fun xs type => do
     let mvar ← mkFreshExprSyntheticOpaqueMVar type
     let [mvarId₁, mvarId₂] ← mvar.mvarId!.apply (mkConst ``Eq.propIntro)
       | throwError "unexpected number of subgoals when proving injective theorem for constructor `{ctorName}`"
     let (h, mvarId₁) ← mvarId₁.intro1
-    let (_, mvarId₂) ← mvarId₂.intro1
     solveEqOfCtorEq ctorName mvarId₁ h
-    let mvarId₂ ← mvarId₂.casesAnd
-    if let some mvarId₂ ← mvarId₂.substEqs then
-      try mvarId₂.refl catch _ => throwError (injTheoremFailureHeader ctorName)
+    let mut mvarId₂ := mvarId₂
+    while true do
+      let t ← mvarId₂.getType
+      let some (conj, body) := t.arrow?  | break
+      match_expr conj with
+      | And lhs rhs =>
+        let [mvarId₂'] ← mvarId₂.applyN (mkApp3 (mkConst `Lean.injEq_helper) lhs rhs body) 1
+            | throwError "unexpected number of goals after applying `Lean.and_imp`"
+        mvarId₂ := mvarId₂'
+      | _ => pure ()
+      let (h, mvarId₂') ← mvarId₂.intro1
+      (_, mvarId₂) ← substEq mvarId₂' h
+    try mvarId₂.refl catch _ => throwError (injTheoremFailureHeader ctorName)
     mkLambdaFVars xs mvar
 
 private def mkInjectiveEqTheorem (ctorVal : ConstructorVal) : MetaM Unit := do
@@ -196,12 +220,13 @@ private structure MkHInjTypeResult where
 private def mkHInjType? (ctorVal : ConstructorVal) : MetaM (Option MkHInjTypeResult) := do
   let us := ctorVal.levelParams.map mkLevelParam
   let type ← elimOptParam ctorVal.type
-  forallBoundedTelescope type ctorVal.numParams fun params type =>
-  forallTelescope type fun args1 _ => do
-  withImplicitBinderInfos (params ++ args1) do
+  forallTelescope type fun args1 _ =>
+  withImplicitBinderInfos args1 do
+    let params1 := args1[:ctorVal.numParams]
     let k (args2 : Array Expr) : MetaM (Option MkHInjTypeResult) := do
-      let lhs := mkAppN (mkAppN (mkConst ctorVal.name us) params) args1
-      let rhs := mkAppN (mkAppN (mkConst ctorVal.name us) params) args2
+      let params2 := args2[:ctorVal.numParams]
+      let lhs := mkAppN (mkConst ctorVal.name us) args1
+      let rhs := mkAppN (mkConst ctorVal.name us) args2
       let eq ← mkEqHEq lhs rhs
       let eqs ← mkEqs args1 args2
       if let some andEqs := mkAnd? eqs then
@@ -209,9 +234,9 @@ private def mkHInjType? (ctorVal : ConstructorVal) : MetaM (Option MkHInjTypeRes
         let some idxs1 ← getCtorAppIndices? lhs | return none
         let some idxs2 ← getCtorAppIndices? rhs | return none
         -- **Note**: We dot not skip here because the type of `noConfusion` does not.
-        let idxEqs ← mkEqs idxs1 idxs2 (skipIfPropOrEq := false)
+        let idxEqs ← mkEqs (params1 ++ idxs1) (params2 ++ idxs2) (skipIfPropOrEq := false)
         let result ← mkArrowN idxEqs result
-        let thmType ← mkForallFVars params (← mkForallFVars args1 (← mkForallFVars args2 result))
+        let thmType ← mkForallFVars args1 (← mkForallFVars args2 result)
         return some { thmType, us, numIndices := idxs1.size }
       else
         return none
@@ -231,10 +256,9 @@ private def failedToGenHInj (ctorVal : ConstructorVal) : MetaM α :=
 private partial def mkHInjectiveTheoremValue? (ctorVal : ConstructorVal) (typeInfo : MkHInjTypeResult) : MetaM (Option Expr) := do
   forallTelescopeReducing typeInfo.thmType fun xs type => do
     let noConfusionName := ctorVal.induct.str "noConfusion"
-    let params := xs[*...ctorVal.numParams]
-    let noConfusion := mkAppN (mkConst noConfusionName (0 :: typeInfo.us)) params
+    let noConfusion := mkConst noConfusionName (0 :: typeInfo.us)
     let noConfusion := mkApp noConfusion type
-    let n := xs.size - typeInfo.numIndices - 1
+    let n := xs.size - ctorVal.numParams - typeInfo.numIndices - 1
     let eqs := xs[n...*].toArray
     let eqExprs ← eqs.mapM fun x => do
       match_expr (← inferType x) with

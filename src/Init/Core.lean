@@ -13,6 +13,10 @@ public import Init.SizeOf
 public section
 set_option linter.missingDocs true -- keep it documented
 
+-- BEq instance for Option defined here so it's available early in the import chain
+-- (before Init.Grind.Config and Init.MetaTypes which need BEq (Option Nat))
+deriving instance BEq for Option
+
 @[expose] section
 
 universe u v w
@@ -201,6 +205,7 @@ An element of `α ⊕ β` is either an `a : α` wrapped in `Sum.inl` or a `b : �
 indication of which of the two types was chosen. The union of a singleton set with itself contains
 one element, while `Unit ⊕ Unit` contains distinct values `inl ()` and `inr ()`.
 -/
+@[suggest_for Either]
 inductive Sum (α : Type u) (β : Type v) where
   /-- Left injection into the sum type `α ⊕ β`. -/
   | inl (val : α) : Sum α β
@@ -336,7 +341,7 @@ inductive Exists {α : Sort u} (p : α → Prop) : Prop where
 An indication of whether a loop's body terminated early that's used to compile the `for x in xs`
 notation.
 
-A collection's `ForIn` or `ForIn'` instance describe's how to iterate over its elements. The monadic
+A collection's `ForIn` or `ForIn'` instance describes how to iterate over its elements. The monadic
 action that represents the body of the loop returns a `ForInStep α`, where `α` is the local state
 used to implement features such as `let mut`.
 -/
@@ -509,12 +514,12 @@ abbrev SSuperset [HasSSubset α] (a b : α) := SSubset b a
 
 /-- Notation type class for the union operation `∪`. -/
 class Union (α : Type u) where
-  /-- `a ∪ b` is the union of`a` and `b`. -/
+  /-- `a ∪ b` is the union of `a` and `b`. -/
   union : α → α → α
 
 /-- Notation type class for the intersection operation `∩`. -/
 class Inter (α : Type u) where
-  /-- `a ∩ b` is the intersection of`a` and `b`. -/
+  /-- `a ∩ b` is the intersection of `a` and `b`. -/
   inter : α → α → α
 
 /-- Notation type class for the set difference `\`. -/
@@ -537,10 +542,10 @@ infix:50 " ⊇ " => Superset
 /-- Strict superset relation: `a ⊃ b`  -/
 infix:50 " ⊃ " => SSuperset
 
-/-- `a ∪ b` is the union of`a` and `b`. -/
+/-- `a ∪ b` is the union of `a` and `b`. -/
 infixl:65 " ∪ " => Union.union
 
-/-- `a ∩ b` is the intersection of`a` and `b`. -/
+/-- `a ∩ b` is the intersection of `a` and `b`. -/
 infixl:70 " ∩ " => Inter.inter
 
 /--
@@ -939,9 +944,7 @@ theorem HEq.subst {p : (T : Sort u) → T → Prop} (h₁ : a ≍ b) (h₂ : p �
 @[symm] theorem HEq.symm (h : a ≍ b) : b ≍ a :=
   h.rec (HEq.refl a)
 
-/-- Propositionally equal terms are also heterogeneously equal. -/
-theorem heq_of_eq (h : a = a') : a ≍ a' :=
-  Eq.subst h (HEq.refl a)
+
 
 /-- Heterogeneous equality is transitive. -/
 theorem HEq.trans (h₁ : a ≍ b) (h₂ : b ≍ c) : a ≍ c :=
@@ -1370,7 +1373,7 @@ instance {α : Type u} {p : α → Prop} [BEq α] [LawfulBEq α] : LawfulBEq {x 
 instance {α : Sort u} {p : α → Prop} [DecidableEq α] : DecidableEq {x : α // p x} :=
   fun ⟨a, h₁⟩ ⟨b, h₂⟩ =>
     if h : a = b then isTrue (by subst h; exact rfl)
-    else isFalse (fun h' => Subtype.noConfusion h' (fun h' => absurd h' h))
+    else isFalse (fun h' => Subtype.noConfusion rfl .rfl (heq_of_eq h') (fun h' => absurd (eq_of_heq h') h))
 
 end Subtype
 
@@ -1429,8 +1432,8 @@ instance [DecidableEq α] [DecidableEq β] : DecidableEq (α × β) :=
     | isTrue e₁ =>
       match decEq b b' with
       | isTrue e₂  => isTrue (e₁ ▸ e₂ ▸ rfl)
-      | isFalse n₂ => isFalse fun h => Prod.noConfusion h fun _   e₂' => absurd e₂' n₂
-    | isFalse n₁ => isFalse fun h => Prod.noConfusion h fun e₁' _   => absurd e₁' n₁
+      | isFalse n₂ => isFalse fun h => Prod.noConfusion rfl rfl (heq_of_eq h) fun _   e₂' => absurd (eq_of_heq e₂') n₂
+    | isFalse n₁ => isFalse fun h => Prod.noConfusion rfl rfl (heq_of_eq h) fun e₁' _   => absurd (eq_of_heq e₁') n₁
 
 instance [BEq α] [BEq β] : BEq (α × β) where
   beq := fun (a₁, b₁) (a₂, b₂) => a₁ == a₂ && b₁ == b₂
@@ -1561,6 +1564,10 @@ instance {p q : Prop} [d : Decidable (p ↔ q)] : Decidable (p = q) :=
   match d with
   | isTrue h => isTrue (propext h)
   | isFalse h => isFalse fun heq => h (heq ▸ Iff.rfl)
+
+/-- Helper theorem for proving injectivity theorems -/
+theorem Lean.injEq_helper {P Q R : Prop} :
+  (P → Q → R) → (P ∧ Q → R) := by intro h ⟨h₁,h₂⟩; exact h h₁ h₂
 
 gen_injective_theorems% Array
 gen_injective_theorems% BitVec

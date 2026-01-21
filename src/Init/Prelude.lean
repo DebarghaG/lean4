@@ -375,6 +375,10 @@ theorem congr {α : Sort u} {β : Sort v} {f₁ f₂ : α → β} {a₁ a₂ : �
 theorem congrFun {α : Sort u} {β : α → Sort v} {f g : (x : α) → β x} (h : Eq f g) (a : α) : Eq (f a) (g a) :=
   h ▸ rfl
 
+/-- Similar to `congrFun` but `β` does not depend on `α`. -/
+theorem congrFun' {α : Sort u} {β : Sort v} {f g : α → β} (h : Eq f g) (a : α) : Eq (f a) (g a) :=
+  h ▸ rfl
+
 /-!
 Initialize the Quotient Module, which effectively adds the following definitions:
 ```
@@ -495,6 +499,10 @@ theorem eq_of_heq {α : Sort u} {a a' : α} (h : HEq a a') : Eq a a' :=
     fun _ _ _ _ h₁ =>
       h₁.rec (fun _ => rfl)
   this α α a a' h rfl
+
+/-- Propositionally equal terms are also heterogeneously equal. -/
+theorem heq_of_eq (h : Eq a a') : HEq a a' :=
+  Eq.subst h (HEq.refl a)
 
 /--
 The product type, usually written `α × β`. Product types are also called pair or tuple types.
@@ -899,7 +907,7 @@ instance [Inhabited α] : Inhabited (ULift α) where
 Lifts a type or proposition to a higher universe level.
 
 `PULift α` wraps a value of type `α`. It is a generalization of
-`PLift` that allows lifting values who's type may live in `Sort s`.
+`PLift` that allows lifting values whose type may live in `Sort s`.
 It also subsumes `PLift`.
 -/
 -- The universe variable `r` is written first so that `ULift.{r} α` can be used
@@ -1193,6 +1201,7 @@ This type is special-cased by both the kernel and the compiler, and overridden w
 implementation. Both use a fast arbitrary-precision arithmetic library (usually
 [GMP](https://gmplib.org/)); at runtime, `Nat` values that are sufficiently small are unboxed.
 -/
+@[suggest_for ℕ]
 inductive Nat where
   /--
   Zero, the smallest natural number.
@@ -2070,6 +2079,13 @@ protected def Nat.sub : (@& Nat) → (@& Nat) → Nat
 
 attribute [gen_constructor_elims] Nat
 
+-- Grind setup for Nat.ctorIdx, the built-in propagator for `.ctorIdx` does not kick in
+-- due to the special representation of Nat constructors.
+protected theorem Nat.ctorIdx_zero : Eq (Nat.ctorIdx 0) 0 := rfl
+protected theorem Nat.ctorIdx_succ : Eq (Nat.ctorIdx (succ n)) 1 := rfl
+grind_pattern Nat.ctorIdx_zero => Nat.ctorIdx 0
+grind_pattern Nat.ctorIdx_succ => Nat.ctorIdx (.succ n)
+
 instance instSubNat : Sub Nat where
   sub := Nat.sub
 
@@ -2330,7 +2346,7 @@ def BitVec.decEq (x y : BitVec w) : Decidable (Eq x y) :=
   | ⟨n⟩, ⟨m⟩ =>
     dite (Eq n m)
       (fun h => isTrue (h ▸ rfl))
-      (fun h => isFalse (fun h' => BitVec.noConfusion h' (fun h' => absurd h' h)))
+      (fun h => isFalse (fun h' => BitVec.noConfusion rfl (heq_of_eq h') (fun h' => absurd (eq_of_heq h') h)))
 
 instance : DecidableEq (BitVec w) := BitVec.decEq
 
@@ -2852,6 +2868,7 @@ Optional values, which are either `some` around a value from the underlying type
 `Option` can represent nullable types or computations that might fail. In the codomain of a function
 type, it can also represent partiality.
 -/
+@[suggest_for Maybe, suggest_for Optional, suggest_for Nullable]
 inductive Option (α : Type u) where
   /-- No value. -/
   | none : Option α
@@ -2921,15 +2938,15 @@ instance {α} : Inhabited (List α) where
 /-- Implements decidable equality for `List α`, assuming `α` has decidable equality. -/
 protected def List.hasDecEq {α : Type u} [DecidableEq α] : (a b : List α) → Decidable (Eq a b)
   | nil,       nil       => isTrue rfl
-  | cons _ _, nil        => isFalse (fun h => List.noConfusion h)
-  | nil,       cons _ _  => isFalse (fun h => List.noConfusion h)
+  | cons _ _, nil        => isFalse (fun h => List.noConfusion rfl (heq_of_eq h))
+  | nil,       cons _ _  => isFalse (fun h => List.noConfusion rfl (heq_of_eq h))
   | cons a as, cons b bs =>
     match decEq a b with
     | isTrue hab  =>
       match List.hasDecEq as bs with
       | isTrue habs  => isTrue (hab ▸ habs ▸ rfl)
-      | isFalse nabs => isFalse (fun h => List.noConfusion h (fun _ habs => absurd habs nabs))
-    | isFalse nab => isFalse (fun h => List.noConfusion h (fun hab _ => absurd hab nab))
+      | isFalse nabs => isFalse (fun h => List.noConfusion rfl (heq_of_eq h) (fun _ habs => absurd (eq_of_heq habs) nabs))
+    | isFalse nab => isFalse (fun h => List.noConfusion rfl (heq_of_eq h) (fun hab _ => absurd (eq_of_heq hab)   nab))
 
 instance {α : Type u} [DecidableEq α] : DecidableEq (List α) := fun xs ys =>
   /-
@@ -2939,16 +2956,16 @@ instance {α : Type u} [DecidableEq α] : DecidableEq (List α) := fun xs ys =>
   match xs with
   | .nil => match ys with
     | .nil => isTrue rfl
-    | .cons _ _ => isFalse List.noConfusion
+    | .cons _ _ => isFalse (fun h => List.noConfusion rfl (heq_of_eq h))
   | .cons a as => match ys with
-    | .nil => isFalse List.noConfusion
+    | .nil => isFalse (fun h => List.noConfusion rfl (heq_of_eq h))
     | .cons b bs =>
       match decEq a b with
       | isTrue hab =>
         match List.hasDecEq as bs with
         | isTrue habs  => isTrue (hab ▸ habs ▸ rfl)
-        | isFalse nabs => isFalse (List.noConfusion · (fun _ habs => absurd habs nabs))
-      | isFalse nab => isFalse (List.noConfusion · (fun hab _ => absurd hab nab))
+        | isFalse nabs => isFalse (fun h => List.noConfusion rfl (heq_of_eq h) (fun _ habs => absurd (eq_of_heq habs) nabs))
+      | isFalse nab => isFalse (fun h => List.noConfusion rfl (heq_of_eq h) (fun hab _ => absurd (eq_of_heq hab)   nab))
 
 /--
 Equality with `List.nil` is decidable even if the underlying type does not have decidable equality.
@@ -2956,7 +2973,7 @@ Equality with `List.nil` is decidable even if the underlying type does not have 
 instance List.instDecidableNilEq (a : List α) : Decidable (Eq List.nil a) :=
   match a with
   | .nil => isTrue rfl
-  | .cons _ _ => isFalse List.noConfusion
+  | .cons _ _ => isFalse (fun h => List.noConfusion rfl (heq_of_eq h))
 
 /--
 Equality with `List.nil` is decidable even if the underlying type does not have decidable equality.
@@ -2964,7 +2981,7 @@ Equality with `List.nil` is decidable even if the underlying type does not have 
 instance List.instDecidableEqNil (a : List α) : Decidable (Eq a List.nil) :=
   match a with
   | .nil => isTrue rfl
-  | .cons _ _ => isFalse List.noConfusion
+  | .cons _ _ => isFalse (fun h => List.noConfusion rfl (heq_of_eq h))
 
 /--
 The length of a list.
@@ -3175,7 +3192,7 @@ Constructs a new empty array with initial capacity `0`.
 
 Use `Array.emptyWithCapacity` to create an array with a greater initial capacity.
 -/
-@[expose]
+@[expose, inline]
 def Array.empty {α : Type u} : Array α := emptyWithCapacity 0
 
 /--
@@ -3185,7 +3202,7 @@ This is a cached value, so it is `O(1)` to access. The space allocated for an ar
 its _capacity_, is at least as large as its size, but may be larger. The capacity of an array is an
 internal detail that's not observable by Lean code.
 -/
-@[extern "lean_array_get_size"]
+@[extern "lean_array_get_size", tagged_return]
 def Array.size {α : Type u} (a : @& Array α) : Nat :=
  a.toList.length
 
@@ -3393,7 +3410,7 @@ Returns the number of bytes in the byte array.
 This is the number of bytes actually in the array, as distinct from its capacity, which is the
 amount of memory presently allocated for the array.
 -/
-@[extern "lean_byte_array_size"]
+@[extern "lean_byte_array_size", tagged_return]
 def ByteArray.size : (@& ByteArray) → Nat
   | ⟨bs⟩ => bs.size
 
@@ -3465,6 +3482,18 @@ attribute [extern "lean_string_to_utf8"] String.toByteArray
 attribute [extern "lean_string_from_utf8_unchecked"] String.ofByteArray
 
 /--
+Creates a string that contains the characters in a list, in order.
+
+Examples:
+ * `String.ofList ['L', '∃', '∀', 'N'] = "L∃∀N"`
+ * `String.ofList [] = ""`
+ * `String.ofList ['a', 'a', 'a'] = "aaa"`
+-/
+@[extern "lean_string_mk"]
+def String.ofList (data : List Char) : String :=
+  ⟨List.utf8Encode data, .intro data rfl⟩
+
+/--
 Decides whether two strings are equal. Normally used via the `DecidableEq String` instance and the
 `=` operator.
 
@@ -3508,7 +3537,7 @@ instance : DecidableEq String.Pos.Raw :=
 /--
 A region or slice of some underlying string.
 
-A substring contains an string together with the start and end byte positions of a region of
+A substring contains a string together with the start and end byte positions of a region of
 interest. Actually extracting a substring requires copying and memory allocation, while many
 substrings of the same underlying string may exist with very little overhead, and they are more
 convenient than tracking the bounds by hand.
@@ -3540,7 +3569,7 @@ The number of bytes used by the string's UTF-8 encoding.
 
 At runtime, this function takes constant time because the byte length of strings is cached.
 -/
-@[extern "lean_string_utf8_byte_size"]
+@[extern "lean_string_utf8_byte_size", tagged_return]
 def String.utf8ByteSize (s : @& String) : Nat :=
   s.toByteArray.size
 
@@ -3935,6 +3964,7 @@ value of type `α`.
 the `pure` operation is `Except.ok` and the `bind` operation returns the first encountered
 `Except.error`.
 -/
+@[suggest_for Result, suggest_for Exception, suggest_for Either]
 inductive Except (ε : Type u) (α : Type v) where
   /-- A failure value of type `ε` -/
   | error : ε → Except ε α
@@ -4042,6 +4072,12 @@ ordinary actions in `m`.
 -/
 def ReaderT (ρ : Type u) (m : Type u → Type v) (α : Type u) : Type (max u v) :=
   ρ → m α
+
+/--
+Interpret `ρ → m α` as an element of `ReaderT ρ m α`.
+-/
+@[always_inline, inline]
+def ReaderT.mk {ρ : Type u} {m : Type u → Type v} {α : Type u} (x : ρ → m α) : ReaderT ρ m α := x
 
 instance (ρ : Type u) (m : Type u → Type v) (α : Type u) [Inhabited (m α)] : Inhabited (ReaderT ρ m α) where
   default := fun _ => default

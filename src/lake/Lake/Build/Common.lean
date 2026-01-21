@@ -9,7 +9,7 @@ prelude
 public import Lake.Build.Job.Monad
 public import Lake.Config.Monad
 public import Lake.Util.JsonObject
-import Lake.Util.IO
+public import Lake.Util.IO
 import Lake.Build.Target.Fetch
 public import Lake.Build.Actions
 
@@ -83,9 +83,6 @@ That is, the very old version of the trace file format that just contained a has
 -/
 public def BuildMetadata.ofStub (hash : Hash) : BuildMetadata :=
   {depHash := hash,  inputs := #[], outputs? := none, log := {}, synthetic := false}
-
-@[deprecated ofStub (since := "2025-06-28")]
-public abbrev BuildMetadata.ofHash := @ofStub
 
 public def BuildMetadata.fromJsonObject? (obj : JsonObject) : Except String BuildMetadata := do
   let depHash ←
@@ -177,14 +174,6 @@ public def readTraceFile (path : FilePath) : LogIO SavedTrace := do
   | .error e =>
     error s!"{path}: read failed: {e}"
 
-/--
-Tries to read data from a trace file. On failure, returns `none`.
-Logs if the read failed or the contents where invalid.
--/
-@[inline, deprecated readTraceFile (since := "2025-06-26")]
-public def readTraceFile? (path : FilePath) : LogIO (Option BuildMetadata) := do
-  if let .ok data ← readTraceFile path then return some data else none
-
 /-- Write a trace file containing the metadata. -/
 public def BuildMetadata.writeFile (path : FilePath) (data : BuildMetadata) : IO Unit := do
   createParentDirs path
@@ -198,9 +187,6 @@ public def BuildMetadata.writeFile (path : FilePath) (data : BuildMetadata) : IO
 @[inline] public def writeBuildTrace
   [ToJson α] (path : FilePath) (depTrace : BuildTrace) (outputs : α) (log : Log)
 : IO Unit := BuildMetadata.writeFile path (.ofBuild depTrace outputs log)
-
-@[deprecated writeBuildTrace (since := "2025-06-28")]
-public abbrev writeTraceFile := @writeBuildTrace
 
 /-- Indicator of whether a build's output(s) are up-to-date. -/
 public inductive OutputStatus
@@ -318,8 +304,10 @@ and log are saved to `traceFile`, if the build completes without a fatal error
   (depTrace : BuildTrace) (traceFile : FilePath) (build : JobM α)
   (action : JobAction := .build)
 : JobM α := do
+  let noBuildTraceFile := traceFile.addExtension "nobuild"
   if (← getNoBuild) then
     updateAction .build
+    writeBuildTrace noBuildTraceFile depTrace Json.null {}
     error s!"target is out-of-date and needs to be rebuilt"
   else
     updateAction action
@@ -329,6 +317,7 @@ and log are saved to `traceFile`, if the build completes without a fatal error
       let a ← build -- fatal errors will abort here
       let log := (← getLog).takeFrom iniPos
       writeBuildTrace traceFile depTrace (toOutputJson a) log
+      removeFileIfExists noBuildTraceFile
       return a
     finally
       let endTime ← IO.monoMsNow
